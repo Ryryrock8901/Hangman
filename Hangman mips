@@ -1,0 +1,1385 @@
+.text
+startMenu:
+    li $v0, 4
+    la $a0, menu_prompt
+    syscall
+
+    li $v0, 12
+    syscall
+    move $t0, $v0
+
+    # Process the user's choice
+    beq $t0, 49, wordList
+    beq $t0, 50, exit
+
+    # Invalid choice, go back to the menu
+    j startMenu
+
+wordList:
+    li $v0, 4
+    la $a0, chooseWordList
+    syscall
+    
+    li $v0, 12		# read character
+    syscall
+    move $s0, $v0 	# move read character to $s0
+    
+    blt $s0, 48, wordList	# check if char ASCII value is within range of 48-51 (0-3)
+    bgt $s0, 51, wordList
+    
+initialSetUp:
+     # Initialize alreadyGuessedLetters to null values
+    la $s6, hangman_states	# load the address of hangman states to $s6
+    li $s4, 0 	# Set $s4 to 0, this will store the number of guesses
+    la $t1, alreadyGuessedLetters  
+    li $t0, 26  # number of iterations for null loop
+    li $t3, 0	# counts to 26
+    
+    # Get correct word list
+    la $t2, wordLists		# load address of wordLists array into $t2
+    la $t4, wordListSize	# load address of wordListSize array into $t4
+    # Check which wordList the user choose based on input value and branch to correct difficulty
+    beq $s0, 48, easy		
+    beq $s0, 49, medium
+    beq $s0, 50, hard
+    beq $s0, 51, veryHard
+    
+    
+    # Set $t5 to the size of the array
+    # Set $s5 to the correct word list
+    easy:
+    	lw $t5, 0($t4)
+    	lw $s5, 0($t2) 
+    	j SetToNull
+    medium:
+    	lw $t5, 4($t4)
+    	lw $s5, 4($t2) 
+    	j SetToNull
+    hard:
+    	lw $t5, 8($t4)
+    	lw $s5, 8($t2)
+    	j SetToNull 
+    veryHard:
+        lw $t5, 12($t4)
+    	lw $s5, 12($t2) 
+    	j SetToNull
+    
+    SetToNull:
+    	sb $zero, 0($t1)   # Store zero at the memory location pointed to by $t1
+    	addi $t1, $t1, 1    # Move to the next byte in the array
+   	addi $t3, $t3, 1    # Increment the counter
+   	blt $t3, $t0, SetToNull
+
+    # Get a random number
+    li $v0, 42         # 42 is syscall number to generate a random number
+    li $a1, 0        
+    add $a1, $a1, $t5  # $a1 is the upper bound - Set upper bound equal to the number of words in the list
+    syscall            # Random number is stored to $a0
+    
+    li $t2, 0          # word counter 
+
+    findAddress:
+   	lb $t4, 0($s5)  # load the byte at $s5, which is initialized to the address of wordList
+    	beq $t2, $a0, gameLoop # if word count = random number, jump to exitFindAddress
+   	beqz $t4, incrementWordCounter # if the current byte = null terminator jump to incrementWordCounter
+    	returnFindAddress:
+  	# If not at the end of the word, move to the next byte of wordList
+    	addi $s5, $s5, 1 # increment address to next character
+   	j findAddress
+
+    incrementWordCounter:
+    	addi $t2, $t2, 1    # increment word count
+   	j returnFindAddress
+   	
+   # At end of initial set up
+   # $s5 stores the address of the start of random word
+   # $s5 must not be changed
+
+gameLoop:
+    	# print initial screen
+    	li $s3, 0	# will use $s3 as a boolean to track whether or not a guessed letter is in the word
+    	li $s2, 0 	# will use $s2 as a boolean to track whether or not the word is complete
+    	
+    	li $v0, 4		# print newLine
+    	la $a0, newLine
+    	syscall 
+    	
+    	lw $a0, 0($s6) 		# load the hangman state at $s6
+    	li $v0, 4		# syscall 4 to print string
+    	syscall			# print string
+    	
+    	li $a2, 0 			# Make sure $a2 is 0
+    	add $a2, $a2, $s5		# Set $a2 to address of random word
+    	li $a3, 0			# Make sure $a3 is 0
+    	la $a3, alreadyGuessedLetters	# Set $a3 to address of alreadyGuessedLetters
+    	jal printWordState	
+    		
+    	# end print initial screen
+    	
+    	la $a0, GuessedCharacters	
+    	li $v0, 4
+    	syscall
+    	
+    	# print out alreadyGuessedLetters arrays
+    	la $t0, alreadyGuessedLetters	# set $t0 to address of alreadyGuessedLetters array
+        printGuessedLetters:
+        	lb $a0, 0($t0)		# load the byte at $t0
+        	beq $a0, 0, readChar	# if its null, jump to readChar
+        	li $v0, 11		# print char
+        	syscall
+        	addi $t0, $t0, 1	# increment $t0
+        	j printGuessedLetters	
+        	
+readChar:
+        li $v0, 4	# syscall for printing a string
+        la $a0, promptGuess  # print message to ask for guess
+        syscall 
+        
+    	li $v0, 12  # syscall 12 reads a character and stores it to $v0
+    	syscall
+    	li $t2, 0
+    	add $t2, $t2, $v0	# move $v0 to $t2
+    	li $s1, 0
+    	add $s1, $s1, $t2 	
+    	
+    	validityCheck:
+    		ble $t2, 90, checkLowerBound # if $t2 <= 90, go to checkUpperBound
+    		bge $t2, 97, checkUpperBound  # if $t2 >= 97, go to checkLowerBound
+    		j invalidCharacter             # if not between 90 and 97, jump to invalidChar
+	checkLowerBound:
+	       blt $t2, 65, invalidCharacter  # if $t2 < 65, invalid char
+    	       addi $t2, $t2, 32               # adds 32 to upper case letter to make them lowercase
+               j checkAlreadyGuessed
+
+	checkUpperBound:
+   	       bgt $t2, 122, invalidCharacter # if $vt2 > 122, invalid char
+               j checkAlreadyGuessed
+
+	invalidCharacter:
+              li $v0, 4        # Syscall 4 to print string
+              la $a0, invalidChar  # load invalidChar message
+              syscall          # print message
+              j readChar       # jump back to readChar to get new input
+       
+    checkAlreadyGuessed: # Checks for repeat characters
+    	la $s7, alreadyGuessedLetters # load the address of alreadyGuessedLetters array to $s7
+    
+    	checkLoop:
+    		lb $t3, 0($s7) # loads a character from alreadyGuessed array, stored in $s7
+    		beqz $t3, notRepeated  # If the current array element is null, the letter is not repeated
+		beq $t3, $t2, letterRepeated  # Check if the guessed letter is equal to the current array element
+		
+			
+		addi $s7, $s7, 1    # Move to the next element in the array
+        	j checkLoop	
+        
+    	letterRepeated:
+		la $a0, alreadyGuessed          # Load the repeated message
+		li $v0, 4               # System call code for string
+		syscall
+	
+		j readChar	# jump back to readChar to get newInput
+	
+    	notRepeated: 
+		# Find the next available slot in the alreadyGuessedLetters array
+		la $s7, alreadyGuessedLetters # Load the base address of the array
+                move $t6, $s7                  # Copy the base address to $t6
+     
+               findNextSlot:
+       	       lb $t3, 0($t6)              # Load a character from the array
+               beqz $t3, slotFound          # If the current array element is null, slot found
+               addi $t6, $t6, 1             # Move to the next element in the array
+               j findNextSlot
+
+               slotFound:
+   	       # Add the non-repeated char to the array at the found slot
+               sb $t2, 0($t6)
+
+               j checkGuess
+    checkGuess: # This section of the code will check if the guessed character is present in the randomly selected word 
+    
+    	li $a2, 0 			# Make sure $a2 is 0
+    	add $a2, $a2, $s5		# Set $a2 to address of random word
+    	li $a3, 0			# Make sure $a3 is 0
+    	la $a3, alreadyGuessedLetters	# Set $a3 to address of alreadyGuessedLetters
+    	jal WordState
+    	
+    	li $a2, 0 			# Make sure $a2 is 0
+    	add $a2, $a2, $s5		# Set $a0 to address of random word
+    	li $s3, 0
+    	jal charInWord
+    		
+    	beqz $s3, charNotInSentence	# $s3 is zero if charNotInSentence, one otherwise
+    	beqz $s2, wordGuessed		# $s2 is zero if word has been guessed, one if not
+    	j gameLoop
+    	
+    	charNotInSentence:
+    		addi $s6, $s6, 4 	# update hangman state to next state
+    		addi $s4, $s4, 1	# iincrement incorrect guess counter
+    		li $t0, 6		# load 5 into $t0
+    		beq $s4, $t0, loseScreen	# if incorrect guesses = 6, go to loseScren
+    		
+    		j gameLoop
+    		
+    	wordGuessed: 
+    		
+    		j winScreen
+    		
+    	
+    		
+loseScreen:
+	li $v0, 4
+    	la $a0, newLine
+    	syscall 
+    	
+	lw $a0, 0($s6) 		# load the hangman state at $s6
+    	li $v0, 4		# syscall 4 to print string
+    	syscall			# print string
+	
+	li $v0, 4
+	la $a0, loseMessage	# print lose message
+	syscall
+	
+	li $v0, 4
+	la $a0, ActualWordMessage	# print message for correct word
+	syscall
+	
+	li $v0, 4	# print the correct word
+    	la $a0, 0($s5)
+    	syscall
+    	
+	getAction: 
+	
+	li $v0, 4
+	la $a0, restartMessage	# print restart message
+	syscall
+	
+	li $v0, 12
+    	syscall		# get user input
+    	move $t0, $v0
+
+        # Process the user's choice
+        beq $t0, 49, initialSetUp	# If user inputs 1, jump to initialSetUp
+        beq $t0, 50, wordList		# if 2, jump to wordList
+	beq $t0, 51, exit		# if 3, jump to exit
+	
+	# Invalid choice, go back to the menu
+	la $a0, invalidAction
+	li $v0, 4		
+	syscall
+	
+    	j getAction
+	
+winScreen: 
+	li $v0, 4
+	la $a0, ActualWordMessage	# print actual word message
+	syscall
+	
+	li $v0, 4
+    	la $a0, 0($s5)			# print word
+    	syscall
+	
+	li $v0, 4
+	la $a0, winMessage		# print win message
+	syscall
+	
+	getOption:
+
+	li $v0, 4
+	la $a0, restartMessage		# print restart message
+	syscall
+	
+	li $v0, 12
+	syscall 			# Get user input
+	move $t0, $v0
+	
+	beq $t0, 49, initialSetUp	# if user input 1, jump to initialSetUp
+        beq $t0, 50, wordList		# if 2, jump to wordList
+	beq $t0, 51, exit		# if 3, jump to exit
+	
+	# Invalid choice, go back to the menu
+	
+	la $a0, invalidAction
+	li $v0, 4
+	syscall
+	
+    	j getOption
+exit:
+
+    # print exit message
+    li $v0, 4
+    la $a0, exit_message
+    syscall
+    # Exit the program
+    li $v0, 10
+    syscall
+    
+    
+printWordState:
+    		Start:
+    			lb $t4, 0($a2)		# load current character from random word
+    			beqz $t4, exitProcedure	# exit the loop if character is a null terminator
+    		
+    			li $t5, 0		# Reset $t5 to zero
+    			add $t5, $t5, $a3	# Set $t5 back to beginning of guessLetters
+    			
+    		checkIfGuessed:
+    			lb $t6, 0($t5)		# load current guessedCharacter
+    			beqz $t6, printUnderscore	# if character is null, branch to printUnderscore
+    			beq $t6, $t4, printCurr		# if match found, junp to printCurr
+    			addi $t6, $t6, -32		# subtract 32 to change case
+    			beq $t6, $t4, printCurr		# if match found now, jump to printCurr
+    			addi $t5, $t5, 1
+    			j checkIfGuessed
+    			
+    		printUnderscore:
+    			li $a0, '_'	# load _ into $a0
+    			li $v0, 11	# syscall 11 to print char
+    			syscall		
+    			addi $a2, $a2, 1
+    			li $a0, ' ' 	# print a space
+    			li $v0, 11
+    			syscall
+    			j Start		# jump back to start
+    			
+    		printCurr:
+    			move $a0, $t6	
+    			li $v0, 11	# print the current character
+    			syscall
+    			addi $a2, $a2, 1
+    			li $a0, ' ' 	# print a space
+    			li $v0, 11
+    			syscall
+    			j Start
+    		exitProcedure: 
+    			jr $ra
+    			
+WordState:
+		StartWordState:
+    			lb $t4, 0($a2)		# load current character from random word
+    			beqz $t4, leaveProcedure	# exit the loop if character is a null terminator
+    		
+    			li $t5, 0		# Reset $t5 to zero
+    			add $t5, $t5, $a3	# Set $t5 back to beginning of guessLetters
+    		guessed:
+    			lb $t6, 0($t5)		# load current guessedCharacter
+    			beqz $t6, underscore	# if character is null, branch to printUnderscore
+    			beq $t6, $t4, printChar	# jump to printChar if match
+    			addi $t6, $t6, -32	# subtract 32 to change cases
+    			beq $t6, $t4, printChar	# jump to printChar if match
+    			addi $t5, $t5, 1	# increment to next word
+    			j guessed
+    		underscore:
+    			li $s2, 1		# Set $s2 to 1 to indicate that the word has not been guessed
+    			addi $a2, $a2, 1
+    			j StartWordState		# jump back to start
+    			
+    		printChar:
+    			li $s3, 1		# set $s3 to 1 to indicate that a match was found 	
+    			addi $a2, $a2, 1	
+    			j StartWordState
+    		leaveProcedure: 
+    			jr $ra
+    			
+charInWord: 
+		lb $t4, 0($a2)			# load the character at $a2
+		beqz $t4, leave			# if its 0, jump to leave
+		
+		checkForChar:
+    			beq $s1, $t4, foundChar	# if current character in word matches guessedChar, jump to foundChar
+    			addi $s1, $s1, -32	# subtract 32 to change cases
+    			beq $s1, $t4, foundChar # if current character in word matches guessedChar, jump to foundChar
+    			addi $s1, $s1, 32	# add back 32 to make sure guessedChar doesn't change for next loop
+    			addi $a2, $a2, 1
+    			j charInWord
+    		
+    		foundChar:
+    			li $s3, 1		# set $s3 to 1 to indicate that a match was found 
+    			jr $ra
+    		
+    		leave:
+    			jr $ra
+    			
+.data
+	  
+alreadyGuessedLetters: .space 26
+
+# Messages 
+menu_prompt: .asciiz "Hangman Game Menu\n1. Start\n2. Exit\nEnter your choice: "
+exit_message: .asciiz "\nThanks for playing!"
+invalidChar: .asciiz "\nInvalid character. Enter a guess: "
+loseMessage: .asciiz "\nYou ran out of guesses!" 
+winMessage: .asciiz "\nYou guessed the word!"
+restartMessage: .asciiz "\n\nPlay again? \n1. Yes \n2. Change difficulty\n3. No(quit)\n Enter your choice: "
+chooseWordList: .asciiz "\n\nChoose a word list. \n0. Easy difficulty\n1. Medium difficulty\n2. Hard difficulty\n3. Very hard difficulty\nEnter your choice: "
+ActualWordMessage: .asciiz "\n\nThe word was "
+GuessedCharacters: .asciiz "\nUsed Characters: "
+invalidAction: .asciiz "\nInvalid option" 
+
+
+# user Input Messages
+promptGuess:     .asciiz "\nEnter a guess: "
+alreadyGuessed: .asciiz "\nYou already guessed that letter. Enter a guess: "
+
+# Hangman States
+hangman_states:
+    .word hangman0
+    .word hangman1
+    .word hangman2
+    .word hangman3
+    .word hangman4
+    .word hangman5
+    .word hangman6
+    .word 0  
+
+hangman0: .asciiz "   |   |\n       |\n       |\n       |\n       |\n=========\n"
+hangman1: .asciiz "   |   |\n   O   |\n       |\n       |\n       |\n=========\n"
+hangman2: .asciiz "   |   |\n   O   |\n  /    |\n       |\n       |\n=========\n"
+hangman3: .asciiz "   |   |\n   O   |\n  /|   |\n       |\n       |\n=========\n"
+hangman4: .asciiz "   |   |\n   O   |\n  /|\\  |\n       |\n       |\n=========\n"
+hangman5: .asciiz "   |   |\n   O   |\n  /|\\  |\n  /    |\n       |\n=========\n"
+hangman6: .asciiz "   |   |\n   O   |\n  /|\\  |\n  / \\  |\n       |\n=========\n"
+
+newLine: .asciiz "\n"
+
+# Lists of words
+wordListSize: 
+	.word 257
+	#.word 1
+	.word 363
+	.word 113
+	.word 188
+wordLists: 
+	.word wordListEasy
+	.word wordListMedium
+	.word wordListHard
+	.word wordListVeryHard
+
+#wordListTest:
+#	.asciiz "this is a test"
+wordListEasy: # 257 words 
+	.asciiz "airplane"
+	.asciiz "alligator"
+	.asciiz "ankle"
+	.asciiz "asleep"
+	.asciiz "back"
+	.asciiz "balloon"
+	.asciiz "bear"
+	.asciiz "bed"
+	.asciiz "bike"
+	.asciiz "blink"
+	.asciiz "blocks"
+	.asciiz "box"
+	.asciiz "bridge"
+	.asciiz "broken"
+	.asciiz "broom"
+	.asciiz "buy"
+	.asciiz "camera"
+	.asciiz "catfish"
+	.asciiz "cave"
+	.asciiz "cereal"
+	.asciiz "cheese"
+	.asciiz "chew"
+	.asciiz "chicken"
+	.asciiz "child"
+	.asciiz "chocolate"
+	.asciiz "clap"
+	.asciiz "circle"
+	.asciiz "cloud"
+	.asciiz "coat"
+	.asciiz "cookie"
+	.asciiz "cook"
+	.asciiz "couch"
+	.asciiz "crab"
+	.asciiz "cupcake"
+	.asciiz "day"
+	.asciiz "dirty"
+	.asciiz "doll"
+	.asciiz "draw"
+	.asciiz "duck"
+	.asciiz "ears"
+	.asciiz "earth"
+	.asciiz "elephant"
+	.asciiz "eyebrow"
+	.asciiz "fast"
+	.asciiz "fog"
+	.asciiz "flower"
+	.asciiz "flowerpot"
+	.asciiz "football"
+	.asciiz "freckle"
+	.asciiz "frown"
+	.asciiz "garden"
+	.asciiz "glasses"
+	.asciiz "giraffe"
+	.asciiz "girl"
+	.asciiz "give"
+	.asciiz "glove"
+	.asciiz "golf"
+	.asciiz "goodbye"
+	.asciiz "grass"
+	.asciiz "green"
+	.asciiz "guitar"
+	.asciiz "hair"
+	.asciiz "hat"
+	.asciiz "head"
+	.asciiz "hippo"
+	.asciiz "hose"
+	.asciiz "hungry"
+	.asciiz "hurt"
+	.asciiz "inchworm"
+	.asciiz "jar"
+	.asciiz "jellyfish"
+	.asciiz "jewelry"
+	.asciiz "jump"
+	.asciiz "kangaroo"
+	.asciiz "ketchup"
+	.asciiz "key"
+	.asciiz "kick"
+	.asciiz "kite"
+	.asciiz "knee"
+	.asciiz "leaf"
+	.asciiz "lime"
+	.asciiz "lion"
+	.asciiz "lip"
+	.asciiz "lips"
+	.asciiz "litter"
+	.asciiz "lollipop"
+	.asciiz "long"
+	.asciiz "mailbox"
+	.asciiz "mango"
+	.asciiz "mirror"
+	.asciiz "mix"
+	.asciiz "monkey"
+	.asciiz "moon"
+	.asciiz "mosquito"
+	.asciiz "music"
+	.asciiz "neighbor"
+	.asciiz "night"
+	.asciiz "niece"
+	.asciiz "noise"
+	.asciiz "nose"
+	.asciiz "ocean"
+	.asciiz "old"
+	.asciiz "orange"
+	.asciiz "outer"
+	.asciiz "paint"
+	.asciiz "pajamas"
+	.asciiz "pan"
+	.asciiz "pants"
+	.asciiz "paper"
+	.asciiz "pear"
+	.asciiz "pen"
+	.asciiz "pencil"
+	.asciiz "pepper"
+	.asciiz "person"
+	.asciiz "photo"
+	.asciiz "pickle"
+	.asciiz "pig"
+	.asciiz "pillow"
+	.asciiz "pirate"
+	.asciiz "pizza"
+	.asciiz "plane"
+	.asciiz "plant"
+	.asciiz "plate"
+	.asciiz "play"
+	.asciiz "playground"
+	.asciiz "point"
+	.asciiz "poem"
+	.asciiz "popcorn"
+	.asciiz "pot"
+	.asciiz "prayer"
+	.asciiz "princess"
+	.asciiz "pull"
+	.asciiz "push"
+	.asciiz "purse"
+	.asciiz "rabbit"
+	.asciiz "red"
+	.asciiz "ribbon"
+	.asciiz "run"
+	.asciiz "sad"
+	.asciiz "sandcastle"
+	.asciiz "saturday"
+	.asciiz "sausage"
+	.asciiz "say"
+	.asciiz "scared"
+	.asciiz "screwdriver"
+	.asciiz "sea"
+	.asciiz "see"
+	.asciiz "shake"
+	.asciiz "shampoo"
+	.asciiz "shave"
+	.asciiz "shell"
+	.asciiz "shoelace"
+	.asciiz "shoot"
+	.asciiz "short"
+	.asciiz "shoulder"
+	.asciiz "shout"
+	.asciiz "shower"
+	.asciiz "sick"
+	.asciiz "side"
+	.asciiz "sidewalk"
+	.asciiz "silly"
+	.asciiz "sister"
+	.asciiz "sit"
+	.asciiz "skip"
+	.asciiz "sled"
+	.asciiz "slide"
+	.asciiz "slow"
+	.asciiz "small"
+	.asciiz "smell"
+	.asciiz "snail"
+	.asciiz "sneeze"
+	.asciiz "snore"
+	.asciiz "snowman"
+	.asciiz "soccer"
+	.asciiz "socks"
+	.asciiz "soft"
+	.asciiz "soon"
+	.asciiz "sore"
+	.asciiz "sound"
+	.asciiz "sparkle"
+	.asciiz "spider"
+	.asciiz "spiderweb"
+	.asciiz "spill"
+	.asciiz "spin"
+	.asciiz "spoon"
+	.asciiz "square"
+	.asciiz "stairs"
+	.asciiz "star"
+	.asciiz "stare"
+	.asciiz "start"
+	.asciiz "stay"
+	.asciiz "steak"
+	.asciiz "stick"
+	.asciiz "stink"
+	.asciiz "stop"
+	.asciiz "store"
+	.asciiz "storm"
+	.asciiz "story"
+	.asciiz "straw"
+	.asciiz "stream"
+	.asciiz "street"
+	.asciiz "stripe"
+	.asciiz "strong"
+	.asciiz "student"
+	.asciiz "subway"
+	.asciiz "suck"
+	.asciiz "sugar"
+	.asciiz "talk"
+	.asciiz "tank"
+	.asciiz "tape"
+	.asciiz "tennis"
+	.asciiz "thirsty"
+	.asciiz "thunder"
+	.asciiz "tie"
+	.asciiz "tired"
+	.asciiz "toothbrush"
+	.asciiz "touch"
+	.asciiz "tower"
+	.asciiz "tractor"
+	.asciiz "tree"
+	.asciiz "triangle"
+	.asciiz "trick"
+	.asciiz "truck"
+	.asciiz "trumpet"
+	.asciiz "tuba"
+	.asciiz "tuesday"
+	.asciiz "turtle"
+	.asciiz "tv"
+	.asciiz "uncle"
+	.asciiz "under"
+	.asciiz "van"
+	.asciiz "vase"
+	.asciiz "vest"
+	.asciiz "vomit"
+	.asciiz "wait"
+	.asciiz "walk"
+	.asciiz "war"
+	.asciiz "warm"
+	.asciiz "wash"
+	.asciiz "wednesday"
+	.asciiz "weep"
+	.asciiz "wet"
+	.asciiz "whale"
+	.asciiz "wheelchair"
+	.asciiz "white"
+	.asciiz "wind"
+	.asciiz "window"
+	.asciiz "wine"
+	.asciiz "wolf"
+	.asciiz "woman"
+	.asciiz "worm"
+	.asciiz "worried"
+	.asciiz "write"
+	.asciiz "yellow"
+	.asciiz "yell"
+	.asciiz "zip"
+	.asciiz "zoo"
+wordListMedium: # 363 words
+	.asciiz "acne"
+	.asciiz "aircraft"
+	.asciiz "alarm"
+	.asciiz "alcohol"
+	.asciiz "angel"
+	.asciiz "ant"
+	.asciiz "apple"
+	.asciiz "artist"
+	.asciiz "astronaut"
+	.asciiz "baby"
+	.asciiz "backbone"
+	.asciiz "backpack"
+	.asciiz "ball"
+	.asciiz "banana"
+	.asciiz "base"
+	.asciiz "baseball"
+	.asciiz "bat"
+	.asciiz "bath"
+	.asciiz "bathroom"
+	.asciiz "battery"
+	.asciiz "beach"
+	.asciiz "beaver"
+	.asciiz "bedbug"
+	.asciiz "bedspread"
+	.asciiz "bell"
+	.asciiz "bicycle"
+	.asciiz "bird"
+	.asciiz "birthday"
+	.asciiz "bite"
+	.asciiz "black"
+	.asciiz "blowfish"
+	.asciiz "blue"
+	.asciiz "board"
+	.asciiz "boat"
+	.asciiz "body"
+	.asciiz "bomb"
+	.asciiz "bonnet"
+	.asciiz "book"
+	.asciiz "boot"
+	.asciiz "bottle"
+	.asciiz "braid"
+	.asciiz "brain"
+	.asciiz "bread"
+	.asciiz "breakfast"
+	.asciiz "broccoli"
+	.asciiz "brush"
+	.asciiz "bubble"
+	.asciiz "buckle"
+	.asciiz "bud"
+	.asciiz "bug"
+	.asciiz "building"
+	.asciiz "bulb"
+	.asciiz "bunny"
+	.asciiz "bus"
+	.asciiz "butterfly"
+	.asciiz "cab"
+	.asciiz "cake"
+	.asciiz "candlestick"
+	.asciiz "candy"
+	.asciiz "cane"
+	.asciiz "cannon"
+	.asciiz "cape"
+	.asciiz "car"
+	.asciiz "card"
+	.asciiz "carrot"
+	.asciiz "cash"
+	.asciiz "cat"
+	.asciiz "ceiling"
+	.asciiz "cello"
+	.asciiz "chair"
+	.asciiz "chalk"
+	.asciiz "cheek"
+	.asciiz "cheeseburger"
+	.asciiz "cherry"
+	.asciiz "chin"
+	.asciiz "chop"
+	.asciiz "clam"
+	.asciiz "claw"
+	.asciiz "cleaner"
+	.asciiz "climb"
+	.asciiz "clock"
+	.asciiz "coal"
+	.asciiz "computer"
+	.asciiz "corner"
+	.asciiz "cow"
+	.asciiz "crib"
+	.asciiz "cup"
+	.asciiz "curtain"
+	.asciiz "cycle"
+	.asciiz "dad"
+	.asciiz "dance"
+	.asciiz "desk"
+	.asciiz "diamond"
+	.asciiz "diaper"
+	.asciiz "dime"
+	.asciiz "dog"
+	.asciiz "doghouse"
+	.asciiz "dollar"
+	.asciiz "door"
+	.asciiz "doormat"
+	.asciiz "drink"
+	.asciiz "drum"
+	.asciiz "earthquake"
+	.asciiz "eat"
+	.asciiz "eel"
+	.asciiz "egg"
+	.asciiz "electricity"
+	.asciiz "elevator"
+	.asciiz "elf"
+	.asciiz "energy"
+	.asciiz "eye"
+	.asciiz "face"
+	.asciiz "fang"
+	.asciiz "farm"
+	.asciiz "fiddle"
+	.asciiz "field"
+	.asciiz "fish"
+	.asciiz "fishing"
+	.asciiz "flagpole"
+	.asciiz "flashlight"
+	.asciiz "flute"
+	.asciiz "fly"
+	.asciiz "food"
+	.asciiz "foot"
+	.asciiz "fork"
+	.asciiz "french"
+	.asciiz "frog"
+	.asciiz "fruit"
+	.asciiz "frying"
+	.asciiz "funny"
+	.asciiz "fur"
+	.asciiz "garbage"
+	.asciiz "gate"
+	.asciiz "gingerbread"
+	.asciiz "glide"
+	.asciiz "globe"
+	.asciiz "goblin"
+	.asciiz "grandfather"
+	.asciiz "grape"
+	.asciiz "grill"
+	.asciiz "gumball"
+	.asciiz "hammer"
+	.asciiz "hand"
+	.asciiz "hanger"
+	.asciiz "happy"
+	.asciiz "headache"
+	.asciiz "helicopter"
+	.asciiz "hippopotamus"
+	.asciiz "hockey"
+	.asciiz "hog"
+	.asciiz "hopscotch"
+	.asciiz "horse"
+	.asciiz "hot"
+	.asciiz "hourglass"
+	.asciiz "house"
+	.asciiz "ice"
+	.asciiz "iPad"
+	.asciiz "ironing"
+	.asciiz "jacket"
+	.asciiz "jam"
+	.asciiz "juice"
+	.asciiz "kiss"
+	.asciiz "knight"
+	.asciiz "lamp"
+	.asciiz "lawn"
+	.asciiz "lawnmower"
+	.asciiz "leg"
+	.asciiz "lemon"
+	.asciiz "lighthouse"
+	.asciiz "limbo"
+	.asciiz "line"
+	.asciiz "lipstick"
+	.asciiz "log"
+	.asciiz "loose"
+	.asciiz "luggage"
+	.asciiz "lunch"
+	.asciiz "machete"
+	.asciiz "mail"
+	.asciiz "man"
+	.asciiz "maple"
+	.asciiz "matchstick"
+	.asciiz "mattress"
+	.asciiz "medicine"
+	.asciiz "melon"
+	.asciiz "mermaid"
+	.asciiz "microphone"
+	.asciiz "milk"
+	.asciiz "mitten"
+	.asciiz "money"
+	.asciiz "monster"
+	.asciiz "mop"
+	.asciiz "motorcycle"
+	.asciiz "mountain"
+	.asciiz "mouse"
+	.asciiz "mouth"
+	.asciiz "muffin"
+	.asciiz "mute"
+	.asciiz "nail"
+	.asciiz "nap"
+	.asciiz "nature"
+	.asciiz "necklace"
+	.asciiz "necktie"
+	.asciiz "newspaper"
+	.asciiz "nightmare"
+	.asciiz "notebook"
+	.asciiz "nut"
+	.asciiz "oven"
+	.asciiz "owl"
+	.asciiz "pancake"
+	.asciiz "penguin"
+	.asciiz "peanut"
+	.asciiz "piano"
+	.asciiz "pie"
+	.asciiz "pineapple"
+	.asciiz "pinwheel"
+	.asciiz "planet"
+	.asciiz "platypus"
+	.asciiz "plumber"
+	.asciiz "pocket"
+	.asciiz "podium"
+	.asciiz "pole"
+	.asciiz "popsicle"
+	.asciiz "potato"
+	.asciiz "prince"
+	.asciiz "puzzle"
+	.asciiz "queen"
+	.asciiz "quilt"
+	.asciiz "radio"
+	.asciiz "rain"
+	.asciiz "rainbow"
+	.asciiz "recycle"
+	.asciiz "rhinoceros"
+	.asciiz "ring"
+	.asciiz "robot"
+	.asciiz "rock"
+	.asciiz "rocket"
+	.asciiz "roller"
+	.asciiz "roof"
+	.asciiz "round"
+	.asciiz "rug"
+	.asciiz "saddle"
+	.asciiz "salad"
+	.asciiz "sailboat"
+	.asciiz "salt"
+	.asciiz "sand"
+	.asciiz "sandwich"
+	.asciiz "saw"
+	.asciiz "scale"
+	.asciiz "scarf"
+	.asciiz "school"
+	.asciiz "scissors"
+	.asciiz "seashell"
+	.asciiz "seat"
+	.asciiz "seesaw"
+	.asciiz "shark"
+	.asciiz "sheep"
+	.asciiz "shelf"
+	.asciiz "shoe"
+	.asciiz "shop"
+	.asciiz "shopping"
+	.asciiz "shovel"
+	.asciiz "sibling"
+	.asciiz "silverware"
+	.asciiz "singer"
+	.asciiz "sink"
+	.asciiz "skate"
+	.asciiz "skateboard"
+	.asciiz "ski"
+	.asciiz "skirt"
+	.asciiz "sky"
+	.asciiz "sleep"
+	.asciiz "smile"
+	.asciiz "smoke"
+	.asciiz "snake"
+	.asciiz "snow"
+	.asciiz "snowball"
+	.asciiz "snowflake"
+	.asciiz "soap"
+	.asciiz "sock"
+	.asciiz "soda"
+	.asciiz "song"
+	.asciiz "soup"
+	.asciiz "space"
+	.asciiz "spade"
+	.asciiz "spaghetti"
+	.asciiz "spine"
+	.asciiz "sport"
+	.asciiz "spring"
+	.asciiz "sprinkler"
+	.asciiz "spy"
+	.asciiz "squirrel"
+	.asciiz "stair"
+	.asciiz "stamp"
+	.asciiz "starfish"
+	.asciiz "station"
+	.asciiz "steam"
+	.asciiz "stingray"
+	.asciiz "stoplight"
+	.asciiz "stomach"
+	.asciiz "stone"
+	.asciiz "stove"
+	.asciiz "strawberry"
+	.asciiz "sun"
+	.asciiz "sunburn"
+	.asciiz "sundae"
+	.asciiz "sunflower"
+	.asciiz "superhero"
+	.asciiz "swimming"
+	.asciiz "swing"
+	.asciiz "sword"
+	.asciiz "tablet"
+	.asciiz "taco"
+	.asciiz "tail"
+	.asciiz "taxi"
+	.asciiz "tea"
+	.asciiz "teacher"
+	.asciiz "teapot"
+	.asciiz "telescope"
+	.asciiz "television"
+	.asciiz "tent"
+	.asciiz "thief"
+	.asciiz "think"
+	.asciiz "throne"
+	.asciiz "thumb"
+	.asciiz "ticket"
+	.asciiz "tiger"
+	.asciiz "toast"
+	.asciiz "toe"
+	.asciiz "toilet"
+	.asciiz "tooth"
+	.asciiz "top"
+	.asciiz "torch"
+	.asciiz "toy"
+	.asciiz "trip"
+	.asciiz "twig"
+	.asciiz "twist"
+	.asciiz "umbrella"
+	.asciiz "unicorn"
+	.asciiz "up"
+	.asciiz "vacuum"
+	.asciiz "video"
+	.asciiz "vine"
+	.asciiz "violin"
+	.asciiz "wall"
+	.asciiz "wallet"
+	.asciiz "walrus"
+	.asciiz "wand"
+	.asciiz "washing"
+	.asciiz "water"
+	.asciiz "watering"
+	.asciiz "wax"
+	.asciiz "web"
+	.asciiz "wedding"
+	.asciiz "whisk"
+	.asciiz "whisper"
+	.asciiz "whistle"
+	.asciiz "wig"
+	.asciiz "windmill"
+	.asciiz "wing"
+	.asciiz "winter"
+	.asciiz "wire"
+	.asciiz "witch"
+	.asciiz "zebra"
+	
+wordListHard: # 113 words
+	.asciiz "Bleach"
+	.asciiz "Bob"
+	.asciiz "Brainstorm"
+	.asciiz "Buddy"
+	.asciiz "Cardboard"
+	.asciiz "Capitalism"
+	.asciiz "Chain"
+	.asciiz "Chime"
+	.asciiz "Charger"
+	.asciiz "Clay"
+	.asciiz "Clockwork"
+	.asciiz "Cog"
+	.asciiz "Cot"
+	.asciiz "Coop"
+	.asciiz "Cough"
+	.asciiz "Crows"
+	.asciiz "Cuticle"
+	.asciiz "Darts"
+	.asciiz "Dawn"
+	.asciiz "Dent"
+	.asciiz "Dimple"
+	.asciiz "Ditch"
+	.asciiz "Dot"
+	.asciiz "Dress"
+	.asciiz "Ear"
+	.asciiz "Ebony"
+	.asciiz "Escalator"
+	.asciiz "Feast"
+	.asciiz "Feudalism"
+	.asciiz "First"
+	.asciiz "Flannel"
+	.asciiz "Forever"
+	.asciiz "Fortnight"
+	.asciiz "Fringe"
+	.asciiz "Fizz"
+	.asciiz "Full"
+	.asciiz "Gem"
+	.asciiz "Ginger"
+	.asciiz "Gray"
+	.asciiz "Half"
+	.asciiz "Handwriting"
+	.asciiz "Hatch"
+	.asciiz "Hedge"
+	.asciiz "Hem"
+	.asciiz "Humidifier"
+	.asciiz "Ivory"
+	.asciiz "Inn"
+	.asciiz "Intern"
+	.asciiz "Jammin"
+	.asciiz "Jade"
+	.asciiz "Jig"
+	.asciiz "Jog"
+	.asciiz "Knife"
+	.asciiz "Ladder"
+	.asciiz "Leak"
+	.asciiz "Mark"
+	.asciiz "Mascot"
+	.asciiz "Mate"
+	.asciiz "Mast"
+	.asciiz "Midsummer"
+	.asciiz "Mess"
+	.asciiz "Modern"
+	.asciiz "Murphys"
+	.asciiz "Nest"
+	.asciiz "New"
+	.asciiz "Pinch"
+	.asciiz "Plaid"
+	.asciiz "Plank"
+	.asciiz "Phone"
+	.asciiz "Population"
+	.asciiz "Pomp"
+	.asciiz "Publisher"
+	.asciiz "Race"
+	.asciiz "Rag"
+	.asciiz "Ray"
+	.asciiz "Reimbursement"
+	.asciiz "Riddle"
+	.asciiz "Rink"
+	.asciiz "Rogue"
+	.asciiz "Runt"
+	.asciiz "Rut"
+	.asciiz "Sash"
+	.asciiz "Scoundrel"
+	.asciiz "Scribble"
+	.asciiz "Scurry"
+	.asciiz "Scuff"
+	.asciiz "Sentence"
+	.asciiz "Sequins"
+	.asciiz "Set"
+	.asciiz "Sheriff"
+	.asciiz "Shirt"
+	.asciiz "Shrink"
+	.asciiz "Sip"
+	.asciiz "Skating"
+	.asciiz "Sling"
+	.asciiz "Squint"
+	.asciiz "Spool"
+	.asciiz "Stepdaughter"
+	.asciiz "Suntan"
+	.asciiz "Swoop"
+	.asciiz "Tide"
+	.asciiz "Tiptop"
+	.asciiz "Tissue"
+	.asciiz "Titter"
+	.asciiz "Train"
+	.asciiz "Tug"
+	.asciiz "Twitterpated"
+	.asciiz "Weigh"
+	.asciiz "Whatever"
+	.asciiz "Wish"
+	.asciiz "Woof"
+	.asciiz "Wool"
+	.asciiz "Zen"
+wordListVeryHard: # 188 words 
+	.asciiz "abrupt"
+	.asciiz "absurd"
+	.asciiz "abyss"
+	.asciiz "affix"
+	.asciiz "askew"
+	.asciiz "avenue"
+	.asciiz "awkward"
+	.asciiz "axiom"
+	.asciiz "azure"
+	.asciiz "bagpipes"
+	.asciiz "bandwagon"
+	.asciiz "banjo"
+	.asciiz "bayou"
+	.asciiz "beekeeper"
+	.asciiz "blitz"
+	.asciiz "blizzard"
+	.asciiz "boggle"
+	.asciiz "bookworm"
+	.asciiz "boxcar"
+	.asciiz "boxful"
+	.asciiz "buckaroo"
+	.asciiz "buffalo"
+	.asciiz "buffoon"
+	.asciiz "buxom"
+	.asciiz "buzzard"
+	.asciiz "buzzing"
+	.asciiz "buzzwords"
+	.asciiz "caliph"
+	.asciiz "cobweb"
+	.asciiz "croquet"
+	.asciiz "crypt"
+	.asciiz "curacao"
+	.asciiz "disavow"
+	.asciiz "dizzying"
+	.asciiz "duplex"
+	.asciiz "dwarves"
+	.asciiz "embezzle"
+	.asciiz "equip"
+	.asciiz "espionage"
+	.asciiz "exodus"
+	.asciiz "faking"
+	.asciiz "fishhook"
+	.asciiz "fixable"
+	.asciiz "fjord"
+	.asciiz "flapjack"
+	.asciiz "flopping"
+	.asciiz "fluffiness"
+	.asciiz "flyby"
+	.asciiz "foxglove"
+	.asciiz "frazzled"
+	.asciiz "frizzled"
+	.asciiz "gabby"
+	.asciiz "galaxy"
+	.asciiz "galvanize"
+	.asciiz "gazebo"
+	.asciiz "gizmo"
+	.asciiz "glyph"
+	.asciiz "gnarly"
+	.asciiz "gnostic"
+	.asciiz "gossip"
+	.asciiz "grogginess"
+	.asciiz "haiku"
+	.asciiz "haphazard"
+	.asciiz "hyphen"
+	.asciiz "icebox"
+	.asciiz "injury"
+	.asciiz "ivy"
+	.asciiz "jackpot"
+	.asciiz "jaundice"
+	.asciiz "jawbreaker"
+	.asciiz "jaywalk"
+	.asciiz "jazziest"
+	.asciiz "jazzy"
+	.asciiz "jelly"
+	.asciiz "jigsaw"
+	.asciiz "jinx"
+	.asciiz "jiujitsu"
+	.asciiz "jockey"
+	.asciiz "jogging"
+	.asciiz "joking"
+	.asciiz "jovial"
+	.asciiz "joyful"
+	.asciiz "juicy"
+	.asciiz "jukebox"
+	.asciiz "jumbo"
+	.asciiz "kayak"
+	.asciiz "kazoo"
+	.asciiz "keyhole"
+	.asciiz "khaki"
+	.asciiz "kilobyte"
+	.asciiz "kiosk"
+	.asciiz "kitsch"
+	.asciiz "kiwifruit"
+	.asciiz "klutz"
+	.asciiz "knapsack"
+	.asciiz "larynx"
+	.asciiz "lengths"
+	.asciiz "lucky"
+	.asciiz "luxury"
+	.asciiz "lymph"
+	.asciiz "marquis"
+	.asciiz "matrix"
+	.asciiz "megahertz"
+	.asciiz "microwave"
+	.asciiz "mnemonic"
+	.asciiz "mystify"
+	.asciiz "nightclub"
+	.asciiz "nowadays"
+	.asciiz "numbskull"
+	.asciiz "nymph"
+	.asciiz "onyx"
+	.asciiz "oxidize"
+	.asciiz "oxygen"
+	.asciiz "pajama"
+	.asciiz "peekaboo"
+	.asciiz "phlegm"
+	.asciiz "pixel"
+	.asciiz "pizazz"
+	.asciiz "pneumonia"
+	.asciiz "polka"
+	.asciiz "psyche"
+	.asciiz "puppy"
+	.asciiz "puzzling"
+	.asciiz "quartz"
+	.asciiz "queue"
+	.asciiz "quips"
+	.asciiz "quiz"
+	.asciiz "quizzes"
+	.asciiz "quorum"
+	.asciiz "rhythm"
+	.asciiz "rickshaw"
+	.asciiz "scratch"
+	.asciiz "shiv"
+	.asciiz "snazzy"
+	.asciiz "sphinx"
+	.asciiz "spritz"
+	.asciiz "squawk"
+	.asciiz "staff"
+	.asciiz "strength"
+	.asciiz "strengths"
+	.asciiz "stretch"
+	.asciiz "stronghold"
+	.asciiz "stymied"
+	.asciiz "swivel"
+	.asciiz "syndrome"
+	.asciiz "thriftless"
+	.asciiz "thumbscrew"
+	.asciiz "topaz"
+	.asciiz "transcript"
+	.asciiz "transgress"
+	.asciiz "transplant"
+	.asciiz "twelfth"
+	.asciiz "unknown"
+	.asciiz "unworthy"
+	.asciiz "unzip"
+	.asciiz "uptown"
+	.asciiz "vaporize"
+	.asciiz "vodka"
+	.asciiz "voodoo"
+	.asciiz "vortex"
+	.asciiz "walkway"
+	.asciiz "waltz"
+	.asciiz "wave"
+	.asciiz "wavy"
+	.asciiz "waxy"
+	.asciiz "wellspring"
+	.asciiz "wheezy"
+	.asciiz "whiskey"
+	.asciiz "whizzing"
+	.asciiz "whomever"
+	.asciiz "wimpy"
+	.asciiz "witchcraft"
+	.asciiz "wizard"
+	.asciiz "woozy"
+	.asciiz "wristwatch"
+	.asciiz "wyvern"
+	.asciiz "xylophone"
+	.asciiz "yippee"
+	.asciiz "yoked"
+	.asciiz "youthful"
+	.asciiz "yummy"
+	.asciiz "zephyr"
+	.asciiz "zigzag"
+	.asciiz "zigzagging"
+	.asciiz "zilch"
+	.asciiz "zipper"
+	.asciiz "zodiac"
+	.asciiz "zombie"
